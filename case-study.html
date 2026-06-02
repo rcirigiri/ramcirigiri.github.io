@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Case Study — Building a Three-Channel Conversational Ordering System</title>
+<meta name="description" content="How Cogo's AI ordering agent takes restaurant orders across voice, chat, and phone — architecture, decisions, and results.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Hanken+Grotesk:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#100F0D;--surface:#181715;--surface-2:#1F1E1A;--line:#2C2A25;
+    --ink:#ECE8DF;--muted:#938C7E;--faint:#6A645A;--accent:#E0A24A;--accent-soft:rgba(224,162,74,0.12);
+    --serif:'Fraunces',Georgia,serif;--sans:'Hanken Grotesk',system-ui,sans-serif;--mono:'JetBrains Mono',monospace;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:var(--bg);color:var(--ink);font-family:var(--sans);line-height:1.62;-webkit-font-smoothing:antialiased;position:relative;overflow-x:hidden}
+  body::before{content:"";position:fixed;top:-30%;left:50%;transform:translateX(-50%);width:900px;height:900px;border-radius:50%;background:radial-gradient(circle,rgba(224,162,74,0.08),transparent 60%);pointer-events:none;z-index:0}
+  .wrap{position:relative;z-index:1;max-width:720px;margin:0 auto;padding:56px 28px 96px}
+
+  .back{font-family:var(--mono);font-size:.78rem;color:var(--muted);text-decoration:none;letter-spacing:.04em;transition:color .2s}
+  .back:hover{color:var(--accent)}
+  .eyebrow{font-family:var(--mono);font-size:.72rem;letter-spacing:.22em;text-transform:uppercase;color:var(--accent);margin:40px 0 16px}
+  h1{font-family:var(--serif);font-weight:500;font-size:clamp(2rem,5.5vw,2.9rem);line-height:1.08;letter-spacing:-.01em}
+  .meta{font-family:var(--mono);font-size:.8rem;color:var(--faint);margin-top:18px;letter-spacing:.02em}
+  .meta .live{color:#5BBE7B}
+  .lead{font-size:1.12rem;color:var(--ink);margin-top:26px;line-height:1.6}
+
+  h2{font-family:var(--mono);font-size:.74rem;letter-spacing:.2em;text-transform:uppercase;color:var(--faint);margin:54px 0 18px;display:flex;align-items:center;gap:14px}
+  h2::after{content:"";flex:1;height:1px;background:var(--line)}
+  p{color:var(--muted);margin-bottom:16px}
+  p b,li b{color:var(--ink);font-weight:600}
+  .prose-ink{color:var(--ink)}
+
+  ul.clean{list-style:none;margin:4px 0 8px}
+  ul.clean li{position:relative;padding-left:22px;color:var(--muted);margin-bottom:11px}
+  ul.clean li::before{content:"";position:absolute;left:2px;top:11px;width:6px;height:6px;border-radius:50%;background:var(--accent)}
+
+  .diagram{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:24px 18px;margin:8px 0 6px}
+  .diagram svg{width:100%;height:auto;display:block}
+  .cap{font-family:var(--mono);font-size:.72rem;color:var(--faint);text-align:center;margin-top:10px;letter-spacing:.03em}
+
+  .decision{border-left:2px solid var(--line);padding:2px 0 2px 22px;margin-bottom:26px}
+  .decision .num{font-family:var(--mono);font-size:.74rem;color:var(--accent);letter-spacing:.06em}
+  .decision h3{font-family:var(--serif);font-weight:500;font-size:1.2rem;margin:4px 0 8px;color:var(--ink)}
+  .decision .tradeoff{font-size:.92rem;color:var(--faint);border-top:1px dashed var(--line);padding-top:10px;margin-top:4px}
+  .decision .tradeoff b{color:var(--muted)}
+
+  .results{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin:6px 0 10px}
+  .r{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px}
+  .r .n{font-family:var(--serif);font-size:1.45rem;color:var(--accent);line-height:1.15}
+  .r .l{font-size:.84rem;color:var(--muted);margin-top:6px}
+
+  .patent{font-family:var(--mono);font-size:.78rem;color:var(--accent);margin-top:8px}
+  .foot{margin-top:64px;padding-top:24px;border-top:1px solid var(--line);font-family:var(--mono);font-size:.76rem;color:var(--faint)}
+  .foot a{color:var(--muted);text-decoration:none}.foot a:hover{color:var(--accent)}
+  @media(max-width:520px){.results{grid-template-columns:1fr}.wrap{padding:44px 20px 72px}}
+</style>
+</head>
+<body>
+<main class="wrap">
+
+  <a class="back" href="index.html">&larr; Ram Cirigiri</a>
+  <p class="eyebrow">Case Study · Cogo Order</p>
+  <h1>Building a three-channel conversational ordering system</h1>
+  <p class="meta"><span class="live">●</span> In production across 5 restaurants &nbsp;·&nbsp; Patent-pending (USPTO #64/026,827)</p>
+
+  <p class="lead">Cogo lets restaurant customers place an order by talking or typing — across in-store voice, the phone, and chat — and completes most orders in a single back-and-forth. This is how it's built, the decisions that mattered, and what they bought.</p>
+
+  <h2>The problem</h2>
+  <p>Restaurants lose orders and staff time to manual phone and counter ordering, and the off-the-shelf voice systems they can buy fall apart on the two things that matter most in a real dining room: <b>accented and multilingual speech</b>, and <b>noisy environments</b>. An ordering assistant that mishears "no cilantro" or a menu item half the time is worse than no assistant at all. The goal was an assistant accurate enough to trust with a live order, fast enough to feel like a conversation, and cheap enough to run on restaurant margins.</p>
+
+  <h2>Constraints</h2>
+  <ul class="clean">
+    <li><b>Accuracy</b> on accented and multilingual speech, against each restaurant's specific menu vocabulary.</li>
+    <li><b>Conversational latency</b> — responses fast enough that talking to it feels natural.</li>
+    <li><b>Cost</b> — running a frontier model on every turn is a non-starter at restaurant economics.</li>
+    <li><b>Reliability &amp; compliance</b> — graceful failover, plus PII handling and audit trails on a system touching customer data.</li>
+    <li><b>Multi-tenant</b> — every restaurant has its own menu, modifiers, and pricing; the same agent has to adapt to each.</li>
+  </ul>
+
+  <h2>Architecture</h2>
+  <div class="diagram">
+    <svg viewBox="0 0 660 470" xmlns="http://www.w3.org/2000/svg" font-family="Hanken Grotesk, sans-serif">
+      <defs>
+        <marker id="ar" markerWidth="9" markerHeight="9" refX="5" refY="4" orient="auto">
+          <path d="M0,0 L8,4 L0,8 Z" fill="#6A645A"/>
+        </marker>
+      </defs>
+      <!-- boxes -->
+      <g>
+        <rect x="90" y="8" width="480" height="52" rx="11" fill="#1F1E1A" stroke="#2C2A25"/>
+        <text x="330" y="32" fill="#ECE8DF" font-size="15" font-weight="600" text-anchor="middle">Customer</text>
+        <text x="330" y="50" fill="#938C7E" font-size="12.5" text-anchor="middle">voice · chat · phone</text>
+      </g>
+      <line x1="330" y1="60" x2="330" y2="82" stroke="#6A645A" stroke-width="1.4" marker-end="url(#ar)"/>
+      <g>
+        <rect x="90" y="84" width="480" height="52" rx="11" fill="#181715" stroke="#2C2A25"/>
+        <text x="330" y="108" fill="#E0A24A" font-size="14.5" font-weight="600" text-anchor="middle">Speech layer — dual ASR engines + arbitration</text>
+        <text x="330" y="126" fill="#938C7E" font-size="12.5" text-anchor="middle">picks the better transcript in ~1ms (voice &amp; phone)</text>
+      </g>
+      <line x1="330" y1="136" x2="330" y2="158" stroke="#6A645A" stroke-width="1.4" marker-end="url(#ar)"/>
+      <g>
+        <rect x="90" y="160" width="480" height="62" rx="11" fill="#181715" stroke="#2C2A25"/>
+        <text x="330" y="184" fill="#E0A24A" font-size="14.5" font-weight="600" text-anchor="middle">LangGraph agent — 18 nodes · 32 grounded tools</text>
+        <text x="330" y="204" fill="#938C7E" font-size="12.5" text-anchor="middle">grounded in each restaurant's live menu</text>
+      </g>
+      <line x1="330" y1="222" x2="330" y2="244" stroke="#6A645A" stroke-width="1.4" marker-end="url(#ar)"/>
+      <g>
+        <rect x="90" y="246" width="480" height="52" rx="11" fill="#181715" stroke="#2C2A25"/>
+        <text x="330" y="270" fill="#E0A24A" font-size="14.5" font-weight="600" text-anchor="middle">Tiered model routing</text>
+        <text x="330" y="288" fill="#938C7E" font-size="12.5" text-anchor="middle">GPT-4o-mini (~70%) → GPT-4o → Claude</text>
+      </g>
+      <line x1="330" y1="298" x2="330" y2="320" stroke="#6A645A" stroke-width="1.4" marker-end="url(#ar)"/>
+      <g>
+        <rect x="90" y="322" width="480" height="52" rx="11" fill="#1F1E1A" stroke="#2C2A25"/>
+        <text x="330" y="346" fill="#ECE8DF" font-size="15" font-weight="600" text-anchor="middle">Order complete</text>
+        <text x="330" y="364" fill="#938C7E" font-size="12.5" text-anchor="middle">cart · pricing · fulfillment</text>
+      </g>
+      <!-- cross-cutting band -->
+      <rect x="40" y="398" width="580" height="60" rx="11" fill="none" stroke="#2C2A25" stroke-dasharray="4 4"/>
+      <text x="330" y="420" fill="#6A645A" font-size="11.5" font-family="JetBrains Mono, monospace" text-anchor="middle">ACROSS EVERY REQUEST</text>
+      <text x="330" y="440" fill="#938C7E" font-size="12" text-anchor="middle">two-tier cache (80%+ hit) · provider failover · PII redaction + audit logging</text>
+      <text x="330" y="455" fill="#938C7E" font-size="12" text-anchor="middle">p95 / error observability · 630-test CI gate</text>
+    </svg>
+  </div>
+  <p class="cap">Order flow — from customer turn to completed order, with cross-cutting reliability concerns.</p>
+
+  <h2>Key decisions</h2>
+
+  <div class="decision">
+    <div class="num">01</div>
+    <h3>Run two speech engines and arbitrate, instead of trusting one</h3>
+    <p>Voice and phone orders run two independent ASR engines in parallel. A lightweight arbitration layer scores both transcripts against the restaurant's menu vocabulary and selects the more accurate one in about a millisecond, which sharply reduces mis-heard items on accented and multilingual speech.</p>
+    <p class="tradeoff"><b>Tradeoff:</b> two engines roughly double speech-to-text cost per call — but a single engine mis-hearing menu items is the failure that makes customers abandon the assistant, so the accuracy was worth the spend. The method is patent-pending.</p>
+  </div>
+
+  <div class="decision">
+    <div class="num">02</div>
+    <h3>Structure the agent as a state machine with grounded tools</h3>
+    <p>Rather than a single free-form prompt, the ordering agent is an 18-node LangGraph state machine with 32 grounded tools — menu lookup, cart operations, pricing, modifiers, allergen checks, recommendations. Grounding every action in the restaurant's live menu is what lets most orders complete in a single exchange and keeps the agent's behavior predictable.</p>
+    <p class="tradeoff"><b>Tradeoff:</b> more upfront engineering than a prompt, but predictable, testable behavior — which is what made a 630-test regression suite possible in the first place.</p>
+  </div>
+
+  <div class="decision">
+    <div class="num">03</div>
+    <h3>Route most turns to a cheap model, escalate only when needed</h3>
+    <p>A deterministic fast-path handles the most common patterns without an LLM at all, and tiered routing sends roughly 70% of remaining turns to a low-cost model, escalating to a stronger one only when the turn warrants it.</p>
+    <p class="tradeoff"><b>Tradeoff:</b> routing logic to maintain, but it cut about a second of latency per turn and kept serving cost low with no measurable quality loss on our evaluation set.</p>
+  </div>
+
+  <div class="decision">
+    <div class="num">04</div>
+    <h3>Cache aggressively in two tiers</h3>
+    <p>An in-memory L1 plus a Redis L2 cache absorbs the repeated work — menu reads, common lookups — at an 80%+ hit rate, which keeps infrastructure to roughly $500/month at current scale: about 1% of what a naive "call the LLM for everything" design would cost.</p>
+    <p class="tradeoff"><b>Tradeoff:</b> cache-invalidation discipline when menus change — handled by tying cache keys to menu versioning.</p>
+  </div>
+
+  <h2>Results</h2>
+  <div class="results">
+    <div class="r"><div class="n">5 restaurants</div><div class="l">live in production today</div></div>
+    <div class="r"><div class="n">~1ms</div><div class="l">speech-arbitration decision per voice turn</div></div>
+    <div class="r"><div class="n">~70%</div><div class="l">of turns served by the low-cost model</div></div>
+    <div class="r"><div class="n">630</div><div class="l">CI-gated regression tests on every release</div></div>
+  </div>
+  <p>Most orders now complete in a single exchange. The system has been built greenfield to production, and a sister product — AI grocery product-discovery — is in pilot with 2 stores, reusing the same grounding and routing patterns.</p>
+
+  <h2>Reliability &amp; compliance</h2>
+  <p>Because it touches live customer orders, the system was engineered for production from the start: failover across both speech and LLM providers, per-session distributed locking, <b>PII redaction and audit logging on every model call</b>, p95/error-rate observability, and the 630-test CI-gated regression suite that guards every deploy.</p>
+
+  <h2>Scaling &amp; what's next</h2>
+  <p>The canonical-normalization architecture behind the menu grounding is <b>designed to scale to 10,000 restaurants</b> — the current 5 are real production traffic on infrastructure built for far more. Next is deeper per-customer personalization on the ordering side, and graduating the grocery product-discovery system from pilot toward production. The work was delivered by a cross-functional team of 2–4 engineers across product, data science, and infrastructure.</p>
+
+  <p class="foot">Ram Cirigiri · Founder, Cognitive Commerce Labs · <a href="index.html">back to overview</a> · <a href="https://linkedin.com/in/rciri">LinkedIn</a></p>
+
+</main>
+</body>
+</html>
